@@ -14,11 +14,7 @@ const cflags = .{
     "-std=c23",
 };
 
-const sanitize_c = if (builtin.zig_version.order(.{
-    .major = 0,
-    .minor = 14,
-    .patch = 1,
-}) == .gt) .off else false;
+const sanitize_c: std.zig.SanitizeC = .off;
 
 pub fn build(b: *Build) void {
     if (comptime !checkVersion())

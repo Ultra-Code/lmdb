@@ -1,6 +1,6 @@
 .{
     .name = .lmdb,
-    .version = "0.9.31+2",
+    .version = "0.9.31+3",
     .minimum_zig_version = "0.15.1",
     .fingerprint = 0xb2966103474360ca,
     .dependencies = .{
