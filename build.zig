@@ -333,7 +333,7 @@ fn checkVersion() bool {
         return false;
     }
 
-    const needed_version = std.SemanticVersion{ .major = 0, .minor = 14, .patch = 1 };
+    const needed_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 1 };
     const version = builtin.zig_version;
     const order = version.order(needed_version);
     return order != .lt;
