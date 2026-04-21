@@ -9,7 +9,7 @@ const OptimizeMode = std.builtin.OptimizeMode;
 
 const lmdb_root = "libraries/liblmdb";
 
-const cflags = .{
+const cflags: []const []const u8 = &.{
     "-pthread",
     "-std=c23",
 };
@@ -25,7 +25,7 @@ pub fn build(b: *Build) void {
 
     const strip = b.option(bool, "strip", "Strip debug information") orelse false;
     const linkage = b.option(LinkMode, "linkage", "Link mode for Lmdb") orelse .static;
-    const lto = b.option(bool, "lto", "Enable link time optimization") orelse false;
+    const lto = b.option(std.zig.LtoMode, "lto", "Enable link time optimization") orelse .none;
 
     const lmdb_upstream = b.dependency(
         "lmdb",
@@ -58,46 +58,46 @@ const BuildLmdb = struct {
     fn lib(bl: BuildLmdb) *Compile {
         const opt = bl.opt;
         const b = bl.b;
-        const liblmdb = b.addLibrary(.{
-            .name = "lmdb",
-            .linkage = opt.linkage,
-            .root_module = b.createModule(.{
-                .target = opt.target,
-                .optimize = opt.optimize,
-                .link_libc = true,
-                .strip = opt.strip,
-                .sanitize_c = sanitize_c,
-            }),
-            .use_llvm = opt.use_llvm(),
-            .use_lld = opt.use_lld(),
-        });
-        liblmdb.want_lto = opt.use_lto();
-
-        const lmdb_includes = .{
+        const lmdb_includes: []const []const u8 = &.{
             "lmdb.h",
             "midl.h",
         };
-        const liblmdb_src = .{
+        const liblmdb_src: []const []const u8 = &.{
             "mdb.c",
             "midl.c",
         };
-
-        liblmdb.addCSourceFiles(.{
-            .root = opt.upstream.path(lmdb_root),
-            .files = &liblmdb_src,
-            .flags = &cflags,
+        const module = b.createModule(.{
+            .target = opt.target,
+            .optimize = opt.optimize,
+            .link_libc = true,
+            .strip = opt.strip,
+            .sanitize_c = sanitize_c,
         });
-        liblmdb.addIncludePath(opt.upstream.path(lmdb_root));
-        liblmdb.root_module.addCMacro("_XOPEN_SOURCE", "600");
+        module.addCSourceFiles(.{
+            .root = opt.upstream.path(lmdb_root),
+            .files = liblmdb_src,
+            .flags = cflags,
+        });
+        module.addIncludePath(opt.upstream.path(lmdb_root));
+        module.addCMacro("_XOPEN_SOURCE", "800");
         if (opt.isMacos()) {
-            liblmdb.root_module.addCMacro("_DARWIN_C_SOURCE", "");
+            module.addCMacro("_DARWIN_C_SOURCE", "");
         }
 
+        const liblmdb = b.addLibrary(.{
+            .name = "lmdb",
+            .linkage = opt.linkage,
+            .root_module = module,
+            .use_llvm = opt.use_llvm(),
+            .use_lld = opt.use_lld(),
+        });
+        liblmdb.lto = opt.use_lto();
         liblmdb.installHeadersDirectory(
             opt.upstream.path(lmdb_root),
             "",
-            .{ .include_extensions = &lmdb_includes },
+            .{ .include_extensions = lmdb_includes },
         );
+
         b.installArtifact(liblmdb);
 
         return liblmdb;
@@ -130,31 +130,32 @@ const BuildLmdb = struct {
                 const b_ = bl_.b;
                 const opt_ = bl_.opt;
                 for (lmdb_tools) |tool_file| {
-                    const bin_name = tool_file[0..mem.indexOfScalar(u8, tool_file, '.').?];
+                    const bin_name = tool_file[0..mem.findScalar(u8, tool_file, '.').?];
+                    const module = b_.createModule(.{
+                        .target = opt_.target,
+                        .optimize = opt_.optimize,
+                        .link_libc = true,
+                        .strip = opt_.strip,
+                        .sanitize_c = sanitize_c,
+                    });
+                    module.addIncludePath(opt_.upstream.path(lmdb_root));
+                    module.addCMacro("_XOPEN_SOURCE", "800");
+                    if (opt_.isMacos()) {
+                        module.addCMacro("_DARWIN_C_SOURCE", "");
+                    }
+                    module.linkLibrary(liblmdb_);
+                    module.addCSourceFiles(.{
+                        .root = opt_.upstream.path(lmdb_root),
+                        .files = &.{tool_file},
+                        .flags = cflags,
+                    });
+
                     const tool = b_.addExecutable(.{
                         .name = bin_name,
-                        .root_module = b_.createModule(.{
-                            .target = opt_.target,
-                            .optimize = opt_.optimize,
-                            .link_libc = true,
-                            .strip = opt_.strip,
-                            .sanitize_c = sanitize_c,
-                        }),
+                        .root_module = module,
                         .use_llvm = opt_.use_llvm(),
                         .use_lld = opt_.use_lld(),
                     });
-
-                    tool.addCSourceFiles(.{
-                        .root = opt_.upstream.path(lmdb_root),
-                        .files = &.{tool_file},
-                        .flags = &cflags,
-                    });
-                    tool.addIncludePath(opt_.upstream.path(lmdb_root));
-                    tool.root_module.addCMacro("_XOPEN_SOURCE", "600");
-                    if (opt_.isMacos()) {
-                        tool.root_module.addCMacro("_DARWIN_C_SOURCE", "");
-                    }
-                    tool.linkLibrary(liblmdb_);
 
                     const install_tool = b_.addInstallArtifact(tool, .{});
                     tools_step_.dependOn(&install_tool.step);
@@ -189,7 +190,7 @@ const BuildLmdb = struct {
             fn makeFn(step: *Step, options: Step.MakeOptions) !void {
                 _ = options;
                 const step_build = step.owner;
-                std.fs.cwd().makeDir(step_build.fmt(
+                std.Io.Dir.cwd().createDirPath(step_build.graph.io, step_build.fmt(
                     "{s}/{s}/testdb/",
                     .{ step_build.install_prefix, install_test_subpath },
                 )) catch |err| switch (err) {
@@ -203,9 +204,10 @@ const BuildLmdb = struct {
             fn makeFn(step: *Step, options: Step.MakeOptions) !void {
                 _ = options;
                 const test_run = Step.cast(step, Step.Run).?;
+                const step_build = test_run.step.owner;
                 const subpath = "testdb/";
                 const bin_path = test_run.cwd.?.getPath3(step.owner, step);
-                bin_path.makePath(subpath) catch unreachable;
+                bin_path.createDirPath(step_build.graph.io, subpath) catch unreachable;
             }
 
             fn create_testdb(owner: *Build, test_dirname: Build.LazyPath) *Step {
@@ -238,24 +240,25 @@ const BuildLmdb = struct {
         for (lmdb_test) |test_file| {
             const test_name = test_file[0..mem.indexOfScalar(u8, test_file, '.').?];
 
-            const test_exe = b.addExecutable(.{
-                .name = test_name,
-                .root_module = b.createModule(.{
-                    .target = opt.target,
-                    .optimize = .Debug,
-                    .link_libc = true,
-                    .sanitize_c = sanitize_c,
-                }),
-                .use_lld = opt.use_lld(),
+            const module = b.createModule(.{
+                .target = opt.target,
+                .optimize = .Debug,
+                .link_libc = true,
+                .sanitize_c = sanitize_c,
             });
-
-            test_exe.addCSourceFiles(.{
+            module.addCSourceFiles(.{
                 .root = opt.upstream.path(lmdb_root),
                 .files = &.{test_file},
                 .flags = &cflags_test,
             });
-            test_exe.addIncludePath(opt.upstream.path(lmdb_root));
-            test_exe.linkLibrary(liblmdb);
+            module.addIncludePath(opt.upstream.path(lmdb_root));
+            module.linkLibrary(liblmdb);
+
+            const test_exe = b.addExecutable(.{
+                .name = test_name,
+                .root_module = module,
+                .use_lld = opt.use_lld(),
+            });
 
             const test_dirname = test_exe.getEmittedBin().dirname();
 
@@ -270,7 +273,6 @@ const BuildLmdb = struct {
             const run = b.addRunArtifact(test_exe);
             run.setCwd(test_dirname);
             run.expectExitCode(0);
-            run.enableTestRunnerMode();
 
             const run_create_testdb = create_testdb(run.step.owner, test_dirname);
             run_create_testdb.dependOn(&test_exe.step);
@@ -287,7 +289,7 @@ const BuildOpt = struct {
     target: Build.ResolvedTarget,
     optimize: OptimizeMode,
     strip: bool,
-    lto: bool,
+    lto: std.zig.LtoMode,
     linkage: LinkMode,
 
     fn isOs(os: std.Target.Os.Tag, target: Build.ResolvedTarget) bool {
@@ -302,8 +304,13 @@ const BuildOpt = struct {
         return isOs(.windows, opt.target);
     }
 
-    fn use_lto(opt: BuildOpt) bool {
-        return if (opt.isMacos()) false else if (opt.use_lld()) opt.lto else false;
+    fn use_lto(opt: BuildOpt) std.zig.LtoMode {
+        return if (opt.isMacos())
+            .none
+        else if (opt.use_lld())
+            opt.lto
+        else
+            .none;
     }
 
     fn use_llvm(opt: BuildOpt) bool {
