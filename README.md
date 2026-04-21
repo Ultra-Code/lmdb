@@ -28,22 +28,25 @@ Import `lmdb` dependency into `build.zig` as follows:
 
 Using `lmdb` artifacts and module in your project
 ```zig
+    const module = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+    });
     const exe = b.addExecutable(.{
         .name = exe_name,
-        .root_source_file = b.path("src/main.zig"),
+        .root_module = module,
         .target = target,
         .optimize = optimize,
         .strip = strip,
     });
-    exe.want_lto = lto;
+    exe.lto = lto;
 
     const liblmdb = lmdb_dep.artifact("lmdb");
-    const lmdb_module = lmdb_dep.module("lmdb");
+    const lmdb = lmdb_dep.module("lmdb");
 
-    exe.root_module.addImport("mdb", lmdb_module);
-    exe.linkLibrary(liblmdb);
+    module.addImport("mdb", lmdb);
+    module.linkLibrary(liblmdb);
 ```
 
 ## Supported on Linux, macOS and Windows
-- Zig 0.16.0-dev
-- Zig 0.15.1
+- Zig 0.17.0-dev
+- Zig 0.16.0
