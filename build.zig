@@ -238,7 +238,7 @@ const BuildLmdb = struct {
         };
 
         for (lmdb_test) |test_file| {
-            const test_name = test_file[0..mem.indexOfScalar(u8, test_file, '.').?];
+            const test_name = test_file[0..mem.findScalar(u8, test_file, '.').?];
 
             const module = b.createModule(.{
                 .target = opt.target,
