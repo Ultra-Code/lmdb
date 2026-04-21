@@ -21,7 +21,7 @@ jobs:
         zig-version: ["master", "0.16.0"]
         os: [ubuntu-latest, macos-latest, windows-latest]
         optimize: [ReleaseSafe, ReleaseFast]
-        build-options: ["-Dlto"]
+        build-options: ["-Dlto=full"]
 
     runs-on: ${{ matrix.os }}
 
